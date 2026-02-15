@@ -1,0 +1,93 @@
+[
+  [
+    "SSR renderToStaticMarkup produces clean HTML",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "SSR renderToString produces HTML with context values",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "composable context-slicing hooks infers ctx as union of hook requirements",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent + OmLayer wires layers and renders from provided context",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent + Ref interaction mutates a Ref from ctx and re-renders",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent captures context and renders it",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent different context produces different output",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent error channel allows error-free construction",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "omComponent error channel propagates typed errors from before component creation",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "shared context across components two components share a Ref via Om context",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "useSignal multiple signal updates",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "useSignal re-renders when signal is modified",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ],
+  [
+    "useSignal renders initial signal value",
+    {
+      "timestamp": "1771275969421.0",
+      "success": true
+    }
+  ]
+]
