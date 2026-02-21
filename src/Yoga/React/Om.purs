@@ -3,17 +3,12 @@ module Yoga.React.Om
   , omComponent
   , useCtx
   , useOm
-  , useSignal
-  , useEvent
   , UseCtx
   , UseOm
-  , UseSignal
-  , UseEvent
   , liftRender
   , bind
   , discard
   , pure
-  -- Re-exported React hooks, lifted into OmRender
   , useState
   , useState'
   , useEffect
@@ -28,6 +23,8 @@ module Yoga.React.Om
   , useId
   , useTransition
   , useDeferredValue
+  , useAff
+  , UseAff
   , module ReExports
   ) where
 
@@ -39,51 +36,39 @@ import Control.Apply.Indexed (class IxApply)
 import Control.Bind.Indexed (class IxBind, ibind)
 import Control.Monad.Indexed (class IxMonad)
 import Data.Functor.Indexed (class IxFunctor)
-import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, un)
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested ((/\), type (/\))
-import Control.Monad.ST.Class (liftST)
 import Effect (Effect)
+import Effect.Aff (Aff, error, killFiber, launchAff, launchAff_, try)
+import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event as Event
 import React.Basic (JSX)
 import React.Basic.Hooks (Reducer, UseState, UseEffect, UseLayoutEffect, UseRef, UseMemo, UseReducer, UseId, UseTransition, UseDeferredValue) as ReExports
 import React.Basic.Hooks as Hooks
 import React.Basic.Hooks.Internal (Render, unsafeHook, unsafeRenderEffect)
 import React.Basic.Hooks.Internal as Render
-import Yoga.React.Om.Signal (Signal)
 import Type.Equality (class TypeEquals)
 import Unsafe.Coerce (unsafeCoerce)
 import Yoga.Om (Om)
 import Yoga.Om as Om
 
--- | A render context that tracks the Om context at the type level.
--- | At runtime this is identical to `Render` — the ctx is phantom.
--- | Use qualified-do with this module (e.g. `Om.do`) to compose hooks.
 newtype OmRender :: Row Type -> Type -> Type -> Type -> Type
 newtype OmRender ctx x y a = OmRender (Render x y a)
 
 derive instance Newtype (OmRender ctx x y a) _
 
--- The stash: a mutable slot written by omComponent before each render,
--- read by useCtx/useOm during render. Safe because React renders are
--- synchronous and single-threaded.
 ctxStash :: Ref.Ref (forall r. { | r })
 ctxStash = unsafePerformEffect (Ref.new (unsafeCoerce {}))
 
--- Helper: unwrap OmRender to the raw Effect
 toEffect :: forall ctx x y a. OmRender ctx x y a -> Effect a
 toEffect = unsafeCoerce
 
--- Helper: wrap raw Effect into OmRender
 fromEffect :: forall ctx x y a. Effect a -> OmRender ctx x y a
 fromEffect = unsafeCoerce
-
--- ============================================================================
--- Indexed monad instances (for qualified-do)
--- ============================================================================
 
 instance IxFunctor (OmRender ctx) where
   imap f m = fromEffect (map f (toEffect m))
@@ -98,10 +83,6 @@ instance IxBind (OmRender ctx) where
   ibind m f = fromEffect (Prelude.bind (toEffect m) \a -> toEffect (f a))
 
 instance IxMonad (OmRender ctx)
-
--- ============================================================================
--- Standard monad instances (when x ~ y, for `pure`)
--- ============================================================================
 
 instance Functor (OmRender ctx x y) where
   map f m = fromEffect (map f (toEffect m))
@@ -123,10 +104,6 @@ instance (TypeEquals x y, Semigroup a) => Semigroup (OmRender ctx x y a) where
 instance (TypeEquals x y, Monoid a) => Monoid (OmRender ctx x y a) where
   mempty = fromEffect mempty
 
--- ============================================================================
--- Qualified-do exports
--- ============================================================================
-
 bind :: forall a b x y z ctx. OmRender ctx x y a -> (a -> OmRender ctx y z b) -> OmRender ctx x z b
 bind = ibind
 
@@ -136,22 +113,12 @@ discard = ibind
 pure :: forall a x ctx. a -> OmRender ctx x x a
 pure a = fromEffect (Prelude.pure a)
 
--- ============================================================================
--- Lifting
--- ============================================================================
-
--- | Lift a standard React hook into OmRender.
 liftRender :: forall ctx x y a. Render x y a -> OmRender ctx x y a
 liftRender = OmRender
-
--- ============================================================================
--- Hooks
--- ============================================================================
 
 data UseCtx :: Row Type -> Type -> Type
 data UseCtx ctx hooks
 
--- | Read the full Om context record inside a component.
 useCtx :: forall @ctx hooks. OmRender ctx hooks (UseCtx ctx hooks) { | ctx }
 useCtx = OmRender (unsafeHook readCtx)
   where
@@ -161,7 +128,6 @@ useCtx = OmRender (unsafeHook readCtx)
 data UseOm :: Row Type -> Type -> Type -> Type
 data UseOm ctx a hooks
 
--- | Run a synchronous Effect that has access to the Om context.
 useOm
   :: forall @ctx hooks a
    . ({ | ctx } -> Effect a)
@@ -172,44 +138,6 @@ useOm f = OmRender (unsafeHook go)
   go = Prelude.do
     ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
     f ctx
-
-data UseSignal :: Type -> Type -> Type
-data UseSignal a hooks
-
-useSignal
-  :: forall ctx hooks a
-   . Signal a
-  -> OmRender ctx hooks (UseSignal a hooks) a
-useSignal signal = fromEffect Prelude.do
-  initial <- signal.read
-  val /\ setVal <- toEffect (liftRender (Hooks.useState initial))
-  toEffect
-    ( liftRender
-        ( Hooks.useEffectOnce Prelude.do
-            Event.subscribe signal.event (\new -> setVal (const new)) # liftST # map liftST
-        )
-    )
-  Prelude.pure val
-
-data UseEvent :: Type -> Type -> Type
-data UseEvent a hooks
-
-useEvent
-  :: forall ctx hooks a
-   . Event.Event a
-  -> OmRender ctx hooks (UseEvent a hooks) (Maybe a)
-useEvent event = fromEffect Prelude.do
-  val /\ setVal <- toEffect (liftRender (Hooks.useState Nothing))
-  toEffect
-    ( liftRender
-        ( Hooks.useEffectOnce Prelude.do
-            Event.subscribe event (\new -> setVal (const (Just new))) # liftST # map liftST
-        )
-    )
-  Prelude.pure val
--- ============================================================================
--- Re-exported React hooks, lifted into OmRender
--- ============================================================================
 
 useState
   :: forall ctx state hooks
@@ -298,13 +226,29 @@ useDeferredValue
   -> OmRender ctx hooks (Hooks.UseDeferredValue a hooks) a
 useDeferredValue a = liftRender (Hooks.useDeferredValue a)
 
--- ============================================================================
--- Component construction
--- ============================================================================
+data UseAff :: Type -> Type -> Type -> Type
+data UseAff deps a hooks
 
--- | Create a React component with Om-based dependency injection.
--- | The context is captured once at construction time and made available
--- | to hooks via `useCtx` and `useOm` inside qualified-do blocks.
+useAff
+  :: forall ctx deps a hooks
+   . Eq deps
+  => deps
+  -> Aff a
+  -> OmRender ctx hooks (UseAff deps a hooks) (Maybe a)
+useAff deps aff = fromEffect Prelude.do
+  result /\ setResult <- toEffect (useState Nothing)
+  toEffect $ useEffect deps Prelude.do
+    setResult (const Nothing)
+    fiber <- launchAff Prelude.do
+      r <- try aff
+      liftEffect (setResult \_ -> Just r)
+    Prelude.pure Prelude.do
+      launchAff_ (killFiber (error "Stale request cancelled") fiber)
+  toEffect $ liftRender $ unsafeRenderEffect case result of
+    Just (Left err) -> Aff.throwError err
+    Just (Right a) -> Prelude.pure (Just a)
+    Nothing -> Prelude.pure Nothing
+
 omComponent
   :: forall @ctx @err hooks props
    . String
