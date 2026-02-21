@@ -41,7 +41,7 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested ((/\), type (/\))
 import Effect (Effect)
-import Effect.Aff (Aff, error, killFiber, launchAff, launchAff_, try)
+import Effect.Aff (error, killFiber, launchAff, launchAff_, try)
 import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -233,14 +233,15 @@ useAff
   :: forall ctx deps a hooks
    . Eq deps
   => deps
-  -> Aff a
+  -> Om { | ctx } () a
   -> OmRender ctx hooks (UseAff deps a hooks) (Maybe a)
-useAff deps aff = fromEffect Prelude.do
+useAff deps om = fromEffect Prelude.do
   result /\ setResult <- toEffect (useState Nothing)
   toEffect $ useEffect deps Prelude.do
+    ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
     setResult (const Nothing)
     fiber <- launchAff Prelude.do
-      r <- try aff
+      r <- try (Om.runOm ctx { exception: \e -> Aff.throwError e } om)
       liftEffect (setResult \_ -> Just r)
     Prelude.pure Prelude.do
       launchAff_ (killFiber (error "Stale request cancelled") fiber)
