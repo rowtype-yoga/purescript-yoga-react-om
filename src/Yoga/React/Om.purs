@@ -23,8 +23,6 @@ module Yoga.React.Om
   , useId
   , useTransition
   , useDeferredValue
-  , useAff
-  , UseAff
   , module ReExports
   ) where
 
@@ -37,12 +35,8 @@ import Control.Bind.Indexed (class IxBind, ibind)
 import Control.Monad.Indexed (class IxMonad)
 import Data.Functor.Indexed (class IxFunctor)
 import Data.Newtype (class Newtype, un)
-import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested ((/\), type (/\))
 import Effect (Effect)
-import Effect.Aff (error, killFiber, launchAff, launchAff_, try)
-import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
@@ -225,30 +219,6 @@ useDeferredValue
    . a
   -> OmRender ctx hooks (Hooks.UseDeferredValue a hooks) a
 useDeferredValue a = liftRender (Hooks.useDeferredValue a)
-
-data UseAff :: Type -> Type -> Type -> Type
-data UseAff deps a hooks
-
-useAff
-  :: forall ctx deps a hooks
-   . Eq deps
-  => deps
-  -> Om { | ctx } () a
-  -> OmRender ctx hooks (UseAff deps a hooks) (Maybe a)
-useAff deps om = fromEffect Prelude.do
-  ctx <- toEffect (useOm @ctx Prelude.pure)
-  result /\ setResult <- toEffect (useState Nothing)
-  toEffect $ useEffect deps Prelude.do
-    setResult (const Nothing)
-    fiber <- launchAff Prelude.do
-      r <- try (Om.runOm ctx { exception: \e -> Aff.throwError e } om)
-      liftEffect (setResult \_ -> Just r)
-    Prelude.pure Prelude.do
-      launchAff_ (killFiber (error "Stale request cancelled") fiber)
-  toEffect $ liftRender $ unsafeRenderEffect case result of
-    Just (Left err) -> Aff.throwError err
-    Just (Right a) -> Prelude.pure (Just a)
-    Nothing -> Prelude.pure Nothing
 
 omComponent
   :: forall @ctx @err hooks props
