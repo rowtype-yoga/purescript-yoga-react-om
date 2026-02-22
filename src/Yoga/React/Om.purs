@@ -35,8 +35,12 @@ import Control.Bind.Indexed (class IxBind, ibind)
 import Control.Monad.Indexed (class IxMonad)
 import Data.Functor.Indexed (class IxFunctor)
 import Data.Newtype (class Newtype, un)
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested ((/\), type (/\))
 import Effect (Effect)
+import Effect.Aff (error, killFiber, launchAff, launchAff_, try)
+import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
@@ -123,15 +127,25 @@ data UseOm :: Row Type -> Type -> Type -> Type
 data UseOm ctx a hooks
 
 useOm
-  :: forall @ctx hooks a
-   . ({ | ctx } -> Effect a)
-  -> OmRender ctx hooks (UseOm ctx a hooks) a
-useOm f = OmRender (unsafeHook go)
-  where
-  go :: Effect a
-  go = Prelude.do
-    ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
-    f ctx
+  :: forall ctx deps a hooks
+   . Eq deps
+  => deps
+  -> Om { | ctx } () a
+  -> OmRender ctx hooks (UseOm ctx a hooks) (Maybe a)
+useOm deps om = fromEffect Prelude.do
+  ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
+  result /\ setResult <- toEffect (useState Nothing)
+  toEffect $ useEffect deps Prelude.do
+    setResult (const Nothing)
+    fiber <- launchAff Prelude.do
+      r <- try (Om.runOm ctx { exception: \e -> Aff.throwError e } om)
+      liftEffect (setResult \_ -> Just r)
+    Prelude.pure Prelude.do
+      launchAff_ (killFiber (error "Stale request cancelled") fiber)
+  toEffect $ liftRender $ unsafeRenderEffect case result of
+    Just (Left err) -> Aff.throwError err
+    Just (Right a) -> Prelude.pure (Just a)
+    Nothing -> Prelude.pure Nothing
 
 useState
   :: forall ctx state hooks
