@@ -3,8 +3,10 @@ module Yoga.React.Om
   , omComponent
   , useCtx
   , useOm
+  , useStrom
   , UseCtx
   , UseOm
+  , UseStrom
   , liftRender
   , bind
   , discard
@@ -50,9 +52,12 @@ import React.Basic.Hooks as Hooks
 import React.Basic.Hooks.Internal (Render, unsafeHook, unsafeRenderEffect)
 import React.Basic.Hooks.Internal as Render
 import Type.Equality (class TypeEquals)
+import Data.Array as Array
 import Unsafe.Coerce (unsafeCoerce)
 import Yoga.Om (Om)
 import Yoga.Om as Om
+import Yoga.Om.Strom (Strom)
+import Yoga.Om.Strom as Strom
 
 newtype OmRender :: Row Type -> Type -> Type -> Type -> Type
 newtype OmRender ctx x y a = OmRender (Render x y a)
@@ -146,6 +151,29 @@ useOm deps om = fromEffect Prelude.do
     Just (Left err) -> Aff.throwError err
     Just (Right a) -> Prelude.pure (Just a)
     Nothing -> Prelude.pure Nothing
+
+data UseStrom :: Row Type -> Type -> Type -> Type
+data UseStrom ctx a hooks
+
+useStrom
+  :: forall ctx deps a hooks
+   . Eq deps
+  => deps
+  -> Om { | ctx } () (Strom { | ctx } () a)
+  -> OmRender ctx hooks (UseStrom ctx a hooks) (Array a)
+useStrom deps mkStrom = fromEffect Prelude.do
+  ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
+  items /\ setItems <- toEffect (useState [])
+  toEffect $ useEffect deps Prelude.do
+    setItems (const [])
+    fiber <- launchAff Prelude.do
+      Om.runOm ctx { exception: \_ -> Prelude.pure unit } Prelude.do
+        strom <- mkStrom
+        strom # Strom.traverseStrom_ \a ->
+          setItems (_ `Array.snoc` a) # liftEffect
+    Prelude.pure Prelude.do
+      launchAff_ (killFiber (error "Stale request cancelled") fiber)
+  Prelude.pure items
 
 useState
   :: forall ctx state hooks
