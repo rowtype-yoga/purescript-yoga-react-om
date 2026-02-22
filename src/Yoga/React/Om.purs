@@ -236,9 +236,9 @@ useAff
   -> Om { | ctx } () a
   -> OmRender ctx hooks (UseAff deps a hooks) (Maybe a)
 useAff deps om = fromEffect Prelude.do
+  ctx <- toEffect (useOm @ctx Prelude.pure)
   result /\ setResult <- toEffect (useState Nothing)
   toEffect $ useEffect deps Prelude.do
-    ctx :: { | ctx } <- unsafeCoerce (Ref.read ctxStash)
     setResult (const Nothing)
     fiber <- launchAff Prelude.do
       r <- try (Om.runOm ctx { exception: \e -> Aff.throwError e } om)
